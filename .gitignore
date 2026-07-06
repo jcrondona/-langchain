@@ -1,0 +1,7 @@
+venv
+google_key
+credentials.json
+token.json
+Profile_juan_rondon.pdf
+__pycache__/
+*.py[cod]
