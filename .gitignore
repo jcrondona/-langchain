@@ -5,3 +5,4 @@ token.json
 Profile_juan_rondon.pdf
 __pycache__/
 *.py[cod]
+.env
