@@ -4,6 +4,8 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
+from langchain_classic.retrievers.ensemble import EnsembleRetriever
+
 import streamlit as st
 from config import *
 from prompts import *
@@ -30,6 +32,14 @@ def initialize_rag_system():
         }
     )
     
+    # Retriver adicional con similarity para comparar
+    similarity_retriever = vectorestore.as_retriever(
+        search_type="similarity",
+        search_kwargs={
+            "k": SEARCH_K
+        }
+    )
+    
     # Prompt personalizado para el MultiQueryRetriever
     multi_query_prompt = PromptTemplate.from_template(MULTI_QUERY_PROMPT)
     
@@ -39,6 +49,17 @@ def initialize_rag_system():
         llm=llm_query,
         prompt=multi_query_prompt
     )
+    
+    # Ensemble Retriever que combina MMR y Similarity
+    if ENABLE_HYBRID_SEARCH:
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=[multi_query_retriever, similarity_retriever],
+            weights=[0.7, 0.3],
+            similarity_threshold=SIMILARITY_THRESHOLD
+        )
+        final_retriever = ensemble_retriever
+    else:
+        final_retriever = multi_query_retriever    
 
     prompt = PromptTemplate.from_template(RAG_TEMPLATE)
     
@@ -63,7 +84,7 @@ def initialize_rag_system():
                     
     rag_chain = (
         {
-            "context": multi_query_retriever | format_docs,
+            "context": final_retriever | format_docs,
             "question": RunnablePassthrough()
         }
         | prompt
@@ -74,9 +95,9 @@ def initialize_rag_system():
     return rag_chain, multi_query_retriever
 
 def query_rag(question):
-    try:
+    # try:
         rag_chain, retriever = initialize_rag_system()
-        response = rag_chain.invoke({"question": question})
+        response = rag_chain.invoke(question)
         docs = retriever.invoke(question)
         docs_info = []
         for i, doc in enumerate(docs[:SEARCH_K], 1):
@@ -88,17 +109,17 @@ def query_rag(question):
             }
             docs_info.append(doc_info)
         return response, docs_info
-    except Exception as e:
-        print(f"Error al procesar la consulta: {str(e)}")
-        error_message = f"Error al procesar la consulta: {str(e)}"
-        return error_message, []
+    # except Exception as e:
+    #     print(f"Error al procesar la consulta: {str(e)}")
+    #     error_message = f"Error al procesar la consulta: {str(e)}"
+    #     return error_message, []
     
 def get_retriever_info():
     
     return {
-        "tipo": f"{SEARCH_TYPE.upper()}",
+        "tipo": f"{SEARCH_TYPE.upper()} + MultiQuery" + (" + Hybrid" if ENABLE_HYBRID_SEARCH else ""),
         "documentos": f"{SEARCH_K}",
         "diversidad": f"{MMR_DIVERSITY_LAMBDA}",
         "candidatos": f"{MMR_FETCH_K}",
-        "umbral":None,
+        "umbral": f"{SIMILARITY_THRESHOLD}" if ENABLE_HYBRID_SEARCH else "N/A",
     }
